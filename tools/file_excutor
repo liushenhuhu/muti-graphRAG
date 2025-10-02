@@ -1,0 +1,179 @@
+import json
+import os
+from pathlib import Path
+import shutil
+import sys
+
+sys.path.insert(0,'D:\yangliu\python_project\graphRAG')
+from prompts.extract_file import prompt_file_to_text, large_file_excutor_prompt
+from llms.qwen_long import QwenLong
+from dotenv import load_dotenv
+load_dotenv()
+CACHE_PATH = os.getenv('CACHE_PATH')
+qwen = QwenLong()
+
+def extract_local_file_list(file_path_list: list, database_name: str,window_size):
+    error_count = 0
+    save_path = os.path.join(os.getenv('DATABASE_PATH'),database_name,'input')
+    if not os.path.exists(save_path):
+        return 'unknown database:'+database_name
+    while True:
+        try:
+            # 获取路径下所有文件名（无后缀）
+            file_already_exists = [Path(i).stem  for i in os.listdir(save_path)]
+            for file_path in file_path_list:
+                file_name = Path(os.path.basename(file_path)).stem 
+                # 文件是否已经存在
+                if file_name in file_already_exists:
+                    print('已存在')
+                    continue
+                file_type = os.path.basename(file_path).split('.')[-1]
+                file_type = file_type.lower()
+                # 判断文件夹大小是否超出限制
+                if int(get_file_size(save_path)) > int(os.getenv('DATABASE_SIZE'))*1024:
+                    return 'max size limit! Current database size is {}KB, should be smaller than {}KB'.format(
+                        get_file_size(save_path)//1024, os.getenv('DATABASE_SIZE'))
+                print(file_path)
+                if file_type == 'pdf':
+                    text = pdf_excutor(file_path)
+                elif file_type =='xlsx':
+                    text = xlsx_excutor(file_path)
+                elif file_type == 'csv':
+                    text = csv_excutor(file_path)
+                elif file_type == 'ppt' or file_type == 'pptx':
+                    text = ppt_excutor(file_path)
+                elif file_type == 'docx' or file_type == 'doc':
+                    text = docx_excutor(file_path)
+                elif file_type == 'txt':
+                    text = txt_excutor(file_path)
+                else:
+                    raise Exception('非法文件类型:'+file_type)
+
+                with open(os.path.join(save_path,
+                                       file_name + '.txt'), 'a+', encoding='utf-8') as f:
+                    f.write(text)
+                    f.flush()
+            return 'success'
+        except Exception as e:
+            if error_count>3:
+                raise e
+            error_count+=1
+
+def pdf_excutor(file_path):
+    text = ''
+    cache_dir = _split_pdf(file_path,10)
+    filename_list = os.listdir(cache_dir)
+    for filename in filename_list:
+        print('excuting:', filename)
+        path = os.path.join(cache_dir, filename)
+        response = qwen.call_llm_with_file(large_file_excutor_prompt, path)
+        text += json.loads(response.content.decode('utf-8'))['message']['message']
+    shutil.rmtree(cache_dir)
+    return text
+def csv_excutor(file_path):
+    response = qwen.call_llm_with_file(prompt_file_to_text, file_path)
+    text = json.loads(response.content.decode('utf-8'))['message']['message']
+    return text
+def xlsx_excutor(file_path):
+    response = qwen.call_llm_with_file(prompt_file_to_text, file_path)
+    text = json.loads(response.content.decode('utf-8'))['message']['message']
+    return text
+
+def txt_excutor(file_path):
+    with open(file_path) as f:
+        text = f.read()
+    return text
+def docx_excutor(file_path):
+    response = qwen.call_llm_with_file(prompt_file_to_text, file_path)
+    text = json.loads(response.content.decode('utf-8'))['message']['message']
+    return text
+def ppt_excutor(file_path):
+    # import comtypes.client
+    # file_name = os.path.basename(file_path).split('.')[0]
+    # cache =os.path.join(CACHE_PATH,file_name+'.pdf')
+    # if os.path.exists(cache):
+    #     os.remove(cache)
+    #
+    # #处理ppt为pdf
+    # powerpoint = comtypes.client.CreateObject("Powerpoint.Application")
+    # ppt = powerpoint.Presentations.Open(file_path)
+    # ppt.SaveAs(cache, 32)
+    #
+    # text = ppt_excutor(cache)
+    # os.remove(cache)
+    # return text
+    response = qwen.call_llm_with_file(prompt_file_to_text, file_path)
+    print(response.content)
+    text = json.loads(response.content.decode('utf-8'))['message']['message']
+    return text
+def get_file_size(path):
+    total_size = 0
+    with os.scandir(path) as entries:
+        for entry in entries:
+            if entry.is_file():
+                total_size += entry.stat().st_size
+            elif entry.is_dir():
+                total_size += get_file_size(entry.path)
+    return total_size
+
+def _split_pdf(file_path,window_size=10):
+    from PyPDF2 import PdfWriter, PdfReader
+
+    """将PDF逐页拆分为独立文件"""
+    file_name = os.path.basename(file_path).split('.')[0]
+    cache_dir_path = os.path.join(CACHE_PATH, file_name)
+
+    if os.path.exists(cache_dir_path):
+        shutil.rmtree(cache_dir_path)
+    os.mkdir(cache_dir_path)
+
+    reader = PdfReader(file_path)
+    length = len(reader.pages)
+    index = 0
+    while index < length:
+        writer = PdfWriter()
+        end = index+window_size
+        end = end if end<length else length-1
+        for page_num in range(index,end):
+            writer.add_page(reader.pages[page_num])
+        with open(os.path.join(cache_dir_path,'page{:03d}-{:03d}.pdf'.format(index ,end)) , "wb") as f:
+            writer.write(f)
+        index += window_size-1
+
+    return cache_dir_path
+
+# def split_ppt(file_path,window_size):
+#     """将PPT逐页拆分为独立文件"""
+#     ppt =Presentation(file_path)
+#     if window_size == None:
+#         window_size = 5
+#     file_name = os.path.basename(file_path).split('.')[0]
+#     cache_dir_path = os.path.join(CACHE_PATH, file_name)
+#     if os.path.exists(cache_dir_path):
+#         shutil.rmtree(cache_dir_path)
+#     os.mkdir(cache_dir_path)
+#
+#     length = len(ppt.slides)
+#     print(length)
+#     index = 0
+#     while index < length:
+#         part_ppt = Presentation()
+#         end = index + window_size
+#         end = end if end < length else length - 1
+#
+#         # TODO 切分PPT 目前没有解决方案
+#
+#         part_ppt.save(os.path.join(cache_dir_path,'page{:03d}-{:03d}.pptx'.format(index, end)) )
+#         index += window_size - 1
+#     return cache_dir_path
+if __name__ == '__main__':
+
+    rs = ppt_excutor(r'\\Auks-ai\R0旧资料\16环安异常专家\文件分类\20120527 TC RA Peeling 工安 issue.ppt')
+    print(rs)
+    # print(get_file_size(r'D:\yangliu\python_project\graphRAG\database'))
+
+
+
+
+
+

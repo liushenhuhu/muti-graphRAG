@@ -1,0 +1,178 @@
+import asyncio
+import os
+from os import chdir
+from pathlib import Path
+import pandas as pd
+from dotenv import load_dotenv
+from graphrag.api.query import local_search,multi_index_local_search
+from graphrag.config.load_config import load_config
+from graphrag.config.create_graphrag_config import create_graphrag_config
+load_dotenv()
+DATABASE_PATH = os.getenv('DATABASE_PATH')
+TEMPLATE_PATH = os.getenv('TEMPLATE_PATH')
+TIKTOKEN_PATH = os.getenv('TIKTOKEN_PATH')
+
+
+def _get_database(database_name):
+    chdir(os.path.join(DATABASE_PATH, database_name))
+    INPUT_DIR = "./output"
+    COMMUNITY_REPORT_TABLE = "community_reports"
+    ENTITY_TABLE = "entities"
+    COMMUNITY_TABLE = "communities"
+    RELATIONSHIP_TABLE = "relationships"
+    TEXT_UNIT_TABLE = "text_units"
+    entity_df = pd.read_parquet(f"{INPUT_DIR}/{ENTITY_TABLE}.parquet")
+    # print(entity_df)
+    community_df = pd.read_parquet(f"{INPUT_DIR}/{COMMUNITY_TABLE}.parquet")
+    relationship_df = pd.read_parquet(f"{INPUT_DIR}/{RELATIONSHIP_TABLE}.parquet")
+    # covariate_df = pd.read_parquet(f"{INPUT_DIR}/{COVARIATE_TABLE}.parquet")
+    report_df = pd.read_parquet(f"{INPUT_DIR}/{COMMUNITY_REPORT_TABLE}.parquet")
+    text_unit_df = pd.read_parquet(f"{INPUT_DIR}/{TEXT_UNIT_TABLE}.parquet")
+    config = load_config(root_dir=Path('./'))
+
+    return config,entity_df,community_df,report_df,text_unit_df,relationship_df
+async def search(database_name, query=''):
+    os.environ['TIKTOKEN_CACHE_DIR'] = TIKTOKEN_PATH
+    if not os.path.exists(os.path.join(DATABASE_PATH,database_name)):
+        return 'unknown database:'+database_name
+    config, entity_df, community_df, report_df, text_unit_df, relationship_df = _get_database(database_name)
+
+    try: 
+        result = await local_search(
+            config=config,
+            entities=entity_df,
+            communities=community_df,
+            community_reports=report_df,
+            text_units=text_unit_df,
+            relationships=relationship_df,
+            covariates=None,
+            community_level=2,
+            response_type="multiple paragraphs",
+            query=query,
+        )
+        return result
+    
+    except Exception as e:
+        raise e
+async def multisearch(database_name_list, query=''):
+    os.environ['TIKTOKEN_CACHE_DIR'] = TIKTOKEN_PATH
+ 
+    for database_name in database_name_list:
+        if not os.path.exists(os.path.join(DATABASE_PATH,database_name)):
+            return 'unknown database:'+database_name        
+    entity_df_list = [pd.read_parquet(f"{DATABASE_PATH}\\{database_name}\\output\\entities.parquet") for database_name in database_name_list]
+    community_df_list = [pd.read_parquet(f"{DATABASE_PATH}\\{database_name}\\output\\communities.parquet") for database_name in database_name_list]
+    report_df_list= [pd.read_parquet(f"{DATABASE_PATH}\\{database_name}\\output\\community_reports.parquet") for database_name in database_name_list]
+    text_unit_df_list = [pd.read_parquet(f"{DATABASE_PATH}\\{database_name}\\output\\text_units.parquet") for database_name in database_name_list]
+    relationship_df_list = [pd.read_parquet(f"{DATABASE_PATH}\\{database_name}\\output\\relationships.parquet") for database_name in database_name_list]
+    vector_store_configs = {
+        database_name: {
+            "type": "lancedb",
+            # "db_uri": f"{DATABASE_PATH}\\{database_name}\\output\\lancedb",
+            "db_uri": f"D:\\yangliu\\python_project\\graphRAG\\database\\{database_name}\\output\\lancedb",
+            "container_name": "default",
+            "overwrite": True,
+            "index_name": '',
+        }
+        for database_name in database_name_list
+    }
+
+    config_data = {
+            "models": {
+                "default_chat_model": {
+                    "api_key": "whatever-it-is",
+                    "auth_type": "api_key",
+                    "type": "openai_chat",
+                    "model": "gpt-4-turbo-preview",
+                    "encoding_model": "cl100k_base",
+                    "api_base": "http://127.0.0.1:5000/v1",
+                    "request_timeout": 180.0,
+                    "tokens_per_minute": "auto",
+                    "requests_per_minute": "auto",
+                    "retry_strategy": "native",
+                    "max_retries": 10,
+                    "max_retry_wait": 10.0,
+                    "concurrent_requests": 25,
+                    "async_mode": "threaded",
+                    "top_p": 1.0,
+                    "n": 1,
+                    "frequency_penalty": 0.0,
+                    "presence_penalty": 0.0,
+                    "model_supports_json": True,
+                    "parallelization_num_threads": 50,
+                    "parallelization_stagger": 0.3,
+ 
+                },
+                "default_embedding_model": {
+                    "parallelization_num_threads": 50,
+                    "parallelization_stagger": 0.3,
+                    "api_key": "whatever-it-is",
+                    "auth_type": "api_key",
+                    "type": "openai_embedding",
+                    "model": "text-embedding-3-small",
+                    "encoding_model": "cl100k_base",
+                    "api_base": "http://127.0.0.1:5000/v1",
+                    "model_supports_json": True,
+                    "request_timeout": 180.0,
+                    "retry_strategy": "native",
+                    "max_retries": 10,
+                    "max_retry_wait": 10.0,
+                    "concurrent_requests": 10,
+                    "async_mode": "threaded",
+                    "temperature": 0.0,
+                    "top_p": 1.0,
+                    "n": 1,
+                    "frequency_penalty": 0.0,
+                    "presence_penalty": 0.0
+                }
+            },
+            "vector_store":vector_store_configs,
+            "local_search": {
+                "prompt": "prompts/local_search_system_prompt.txt",
+                "llm_max_tokens": 12000,
+            },
+            "global_search": {
+                "map_prompt": "prompts/global_search_map_system_prompt.txt",
+                "reduce_prompt": "prompts/global_search_reduce_system_prompt.txt",
+                "knowledge_prompt": "prompts/global_search_knowledge_system_prompt.txt",
+            },
+            "drift_search": {
+                "prompt": "prompts/drift_search_system_prompt.txt",
+                "reduce_prompt": "prompts/drift_search_reduce_prompt.txt",
+            },
+            "basic_search": {"prompt": "prompts/basic_search_system_prompt.txt"},
+        }
+    # print(vector_store_configs)
+    try: 
+        parameters = create_graphrag_config(config_data, "D:\yangliu\python_project\graphRAG\database\digital_human2000")
+        # print(parameters)
+        # print(parameters)
+        os.environ['TIKTOKEN_CACHE_DIR'] = TIKTOKEN_PATH
+        loop = asyncio.get_event_loop()
+        task = loop.create_task(
+            multi_index_local_search(
+            parameters,
+            entity_df_list,
+            community_df_list,
+            report_df_list,
+            text_unit_df_list,
+            relationship_df_list,
+            None,
+            database_name_list,
+            1,
+            "Multiple Paragraphs",
+            False,
+            query=query,
+            verbose=True
+        )
+        )
+        result = await task
+        return result
+    except Exception as e:
+        raise e
+
+if __name__ == '__main__':
+    rs = asyncio.run(multisearch(['security_manager', 'digital_human2000'], query="收到电表龙卷风邮件:电表数据：EQP_POWER_METER no data in 50min")) 
+    # rs = asyncio.run(search('digital_human2000_1000', query="收到电表龙卷风邮件:电表数据：EQP_POWER_METER no data in 50min")) 
+
+    print(rs)
