@@ -6,33 +6,15 @@ from flask_cors import CORS
 from api.index import create_database, create_index, get_database_list, delete_database
 from api.query import search,multisearch
 from api.file import upload_local_file, delete_file_with_list,get_file_list
-from concurrent.futures import ProcessPoolExecutor 
+from concurrent.futures import ProcessPoolExecutor
+
+from process import multi_local_search_process, create_index_process, local_search_process
+
 app = Flask(__name__)
 CORS(app,origins='*')
 load_dotenv()
 
-executor = ProcessPoolExecutor(max_workers=10) 
-
-def create_index_process(*args): 
-    try:
-        rs = asyncio.run(create_index(*args))
-    except Exception as e:
-        print(e)
-        raise SystemExit(0) 
-    return rs
-
-def local_search_process(*args): 
-    try:
-        rs = asyncio.run(search(*args))
-    except Exception:
-        raise SystemExit(0)
-    return rs
-def multi_local_search_process(*args): 
-    try:
-        rs = asyncio.run(multisearch(*args))
-    except Exception:
-        raise SystemExit(0)
-    return rs
+executor = ProcessPoolExecutor(max_workers=10)
 
 @app.route('/')
 def index():
@@ -45,7 +27,6 @@ def index():
             continue
         routes.append(str(rule))
 
-    # 返回JSON格式的路由信息
     return jsonify(routes)
 
 @app.route('/',methods = ['GET'])
@@ -146,7 +127,7 @@ def quick_create_graph():
 @app.route('/local_search',methods = ['POST'])
 def local_search():
     database_name = request.json.get('database_name')
-    query = request.json.get('query')
+    query = request.json.get('query.py')
     
     if isinstance(database_name,list):
         future = executor.submit(multi_local_search_process, database_name,query) 

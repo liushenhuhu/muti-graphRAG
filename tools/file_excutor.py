@@ -67,17 +67,15 @@ def pdf_excutor(file_path):
         print('excuting:', filename)
         path = os.path.join(cache_dir, filename)
         response = qwen.call_llm_with_file(large_file_excutor_prompt, path)
-        text += json.loads(response.content.decode('utf-8'))['message']['message']
+        text += response
     shutil.rmtree(cache_dir)
     return text
 def csv_excutor(file_path):
     response = qwen.call_llm_with_file(prompt_file_to_text, file_path)
-    text = json.loads(response.content.decode('utf-8'))['message']['message']
-    return text
+    return response
 def xlsx_excutor(file_path):
     response = qwen.call_llm_with_file(prompt_file_to_text, file_path)
-    text = json.loads(response.content.decode('utf-8'))['message']['message']
-    return text
+    return response
 
 def txt_excutor(file_path):
     with open(file_path) as f:
@@ -85,8 +83,7 @@ def txt_excutor(file_path):
     return text
 def docx_excutor(file_path):
     response = qwen.call_llm_with_file(prompt_file_to_text, file_path)
-    text = json.loads(response.content.decode('utf-8'))['message']['message']
-    return text
+    return response
 def ppt_excutor(file_path):
     # import comtypes.client
     # file_name = os.path.basename(file_path).split('.')[0]
@@ -103,9 +100,7 @@ def ppt_excutor(file_path):
     # os.remove(cache)
     # return text
     response = qwen.call_llm_with_file(prompt_file_to_text, file_path)
-    print(response.content)
-    text = json.loads(response.content.decode('utf-8'))['message']['message']
-    return text
+    return response
 def get_file_size(path):
     total_size = 0
     with os.scandir(path) as entries:

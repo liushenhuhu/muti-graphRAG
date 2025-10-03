@@ -22,7 +22,6 @@ def _get_database(database_name):
     RELATIONSHIP_TABLE = "relationships"
     TEXT_UNIT_TABLE = "text_units"
     entity_df = pd.read_parquet(f"{INPUT_DIR}/{ENTITY_TABLE}.parquet")
-    # print(entity_df)
     community_df = pd.read_parquet(f"{INPUT_DIR}/{COMMUNITY_TABLE}.parquet")
     relationship_df = pd.read_parquet(f"{INPUT_DIR}/{RELATIONSHIP_TABLE}.parquet")
     # covariate_df = pd.read_parquet(f"{INPUT_DIR}/{COVARIATE_TABLE}.parquet")
@@ -172,7 +171,7 @@ async def multisearch(database_name_list, query=''):
         raise e
 
 if __name__ == '__main__':
-    rs = asyncio.run(multisearch(['security_manager', 'digital_human2000'], query="收到电表龙卷风邮件:电表数据：EQP_POWER_METER no data in 50min")) 
+    rs = asyncio.run(multisearch(['database1'], query = '你知道什么'))
     # rs = asyncio.run(search('digital_human2000_1000', query="收到电表龙卷风邮件:电表数据：EQP_POWER_METER no data in 50min")) 
 
     print(rs)
